@@ -8,7 +8,7 @@ First, install:
 
 .. code-block:: sh
 
-    pip install streamz[redis]
+    pip install git+https://github.com/roveo/streamz_redis.git
 
 
 Then, start a throwaway Redis in Docker:
@@ -77,7 +77,6 @@ emitting as new messages arrive.
             client.xadd("test-stream", {"i": i})
     sleep(1)
 
-.. _from-redis-consumer-group:
 
 ``from_redis_consumer_group``
 *****************************

@@ -1,6 +1,3 @@
-import time
-from multiprocessing import queues
-
 import pytest
 from redis import StrictRedis
 from streamz.utils_test import wait_for

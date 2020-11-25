@@ -1,6 +1,5 @@
-from typing import Union
-
 from streamz import Sink
+
 from streamz_redis.base import RedisNode
 
 
