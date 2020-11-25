@@ -18,14 +18,15 @@ class from_redis_lists(RedisSource):
         self,
         keys: Union[list, str],
         client_params: dict = None,
-        timeout=0,
-        left=True,
+        timeout: int = 0,
+        left: bool = True,
         **kwargs
     ):
-        """Parameters
+        """
+        Parameters
         ----------
-        keys: list-like or str
-            Redis key of the list. It's OK if the list doesn't exist.
+        keys: str or list-like
+            One or more Redis lists to read from.
         client_params: dict
             Parameters the will be passed to ``redis-py`` client. Defaults to ``{}``.
         timeout: int or float

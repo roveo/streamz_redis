@@ -19,7 +19,8 @@ class from_redis_streams(RedisSource):
         encoding: str = "UTF-8",
         **kwargs,
     ):
-        """Parameters
+        """
+        Parameters
         ----------
         streams: dict, str, list or tuple
             A dict of ``stream-name: message-id``. ``message-id`` is an id to start

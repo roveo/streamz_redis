@@ -1,6 +1,6 @@
-from redis import StrictRedis
 from streamz import Source
 from streamz.core import RefCounter
+from streamz_redis.base import RedisNode
 from tornado import gen
 
 
@@ -8,7 +8,7 @@ def create_metadata(cb):
     return [{"ref": RefCounter(cb=cb)}]
 
 
-class RedisSource(Source):
+class RedisSource(Source, RedisNode):
     """Abstract class for redis sources.
 
     Parameters
@@ -18,23 +18,16 @@ class RedisSource(Source):
         Will be passed to ``redis-py`` client instance. Defaults to None.
     """
 
-    def __init__(self, client_params: dict = None, **kwargs):
+    def __init__(self, **kwargs):
         super().__init__(ensure_io_loop=True, **kwargs)
-        self._params = client_params or {}
-        self._client = None
-
-    @property
-    def _redis(self) -> StrictRedis:
-        """``redis-py`` client instance bound to this source. Will be created
-        when first accessed.
-        """
-        if self._client is None:
-            self._client = StrictRedis(**self._params)
-        return self._client
 
     def start(self):
         self.stopped = False
         self.loop.add_callback(self._run)
+
+    def _run_in_executor(self, fn, *args):
+        """Shorthand for running something in a thread."""
+        return self.loop.run_in_executor(None, fn, *args)
 
     @gen.coroutine
     def _emit_streams_response(self, result, ack=None):
@@ -69,7 +62,3 @@ class RedisSource(Source):
                 else:
                     m = None
                 yield self._emit((stream, _id, data), metadata=m)
-
-    def _run_in_executor(self, fn, *args):
-        """Shorthand for running something in a thread."""
-        return self.loop.run_in_executor(None, fn, *args)

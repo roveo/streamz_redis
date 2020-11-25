@@ -108,7 +108,7 @@ def test_group_consumer_pending(redis: StrictRedis, data):
     for x in data:
         redis.xadd(stream, x)
 
-    assert len(consumer.get_pending(stream, con, 10)) == 0
+    assert len(consumer.get_pending(stream, con, count=10)) == 0
 
     res = consumer.consume()
     assert len(res) > 0
@@ -116,7 +116,7 @@ def test_group_consumer_pending(redis: StrictRedis, data):
     for stream, messages in res:
         consumer.ack(stream, *[_id for _id, _ in messages][:3])
 
-    assert len(consumer.get_pending(stream, con, 10)) == 3
+    assert len(consumer.get_pending(stream, con, count=10)) == 3
 
     res = consumer.consume(pending=True)
 
@@ -128,18 +128,37 @@ def test_group_consumer_pending(redis: StrictRedis, data):
 @pytest.mark.n(10)
 def test_group_consumer_claim(redis: StrictRedis, data):
     stream, group, con = uuid(3)
-    consumer = GroupConsumer(redis, {stream: 0}, group, con)
+    consumer = GroupConsumer(redis, {stream: 0}, group, con, count=10)
 
     for x in data:
         redis.xadd(stream, x)
 
     consumer.consume()
 
-    consumer.name = uuid()  # pretent do be a different consumer
+    consumer.name = uuid()  # pretend do be a different consumer
 
-    for _, messages in consumer.claim_pending(stream, con, count=3):
+    for _, messages in consumer.claim_pending(stream, con, count=3, min_idle_time=0):
         assert len(messages) == 3
 
-    consumer.count = 2  # test claiming all in batches
-    for _, messages in consumer.claim_pending(stream, con, count=None):
+    for _, messages in consumer.claim_pending(stream, con, min_idle_time=0):
         assert len(messages) == 7
+
+
+@pytest.mark.n(10)
+def test_group_consumer_claim_parallel(redis: StrictRedis, data):
+    stream, group, con, c1, c2 = uuid(5)
+
+    fail = GroupConsumer(redis, stream, group, con, count=10)
+
+    for x in data:
+        redis.xadd(stream, x)
+
+    fail.consume()  # do not ack
+
+    con1 = GroupConsumer(redis, stream, group, c1, count=5)
+    con2 = GroupConsumer(redis, stream, group, c2, count=5)
+
+    r1 = con1.claim_pending(stream, con, 0)
+    r2 = con2.claim_pending(stream, con, 0)
+
+    assert len(r1[0][1] + r2[0][1]) == 10

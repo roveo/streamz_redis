@@ -160,7 +160,14 @@ class GroupConsumer(Consumer):
         convert: bool = True,
         encoding: str = "UTF-8",
     ):
-        super().__init__(client, streams, count, block, convert, encoding)
+        super().__init__(
+            client=client,
+            streams=streams,
+            count=count,
+            block=block,
+            convert=convert,
+            encoding=encoding,
+        )
         self.group = group_name
         self.name = consumer_name
         self.ensure_group()
@@ -169,9 +176,9 @@ class GroupConsumer(Consumer):
         """Ensure the consumer group exists for each of the streams, create the streams
         if necessary. This operation is idempotent.
         """
-        for stream, _id in self.streams.items():
+        for stream, _ in self.streams.items():
             try:
-                self.client.xgroup_create(stream, self.group, id=_id, mkstream=True)
+                self.client.xgroup_create(stream, self.group, id="0", mkstream=True)
             except ResponseError:
                 pass
 
@@ -204,7 +211,7 @@ class GroupConsumer(Consumer):
         ----------
         pending: bool
             Read messages from PEL (pending entry list) instead of new messages.
-            Useful for initial recovery.
+            Useful for initial recovery. Defaults to False.
         """
         return self.read(pending)
 
@@ -226,56 +233,33 @@ class GroupConsumer(Consumer):
         )
         return [x["message_id"] for x in messages]
 
-    def claim_pending(self, stream, consumer, count=None):
+    def claim_pending(self, stream, consumer, min_idle_time, count=None):
         """Claim pending messages in a stream from another consumer. Messages are
         returned as a usual batch (with stream name) for consistency. Claiming messages
         is useful when a consumer in the group is down for a long time (possibly
         forever) and we need to recover unacknoledged messages.
         """
-        _count = count or self.count or 1000
+        _count = count or self.count or 1000  # have to provide a count
 
-        def claim(ids):
-            return self._preprocess(
-                self.client.xclaim(stream, self.group, self.name, 1, message_ids=ids)
+        ids = self.get_pending(stream, consumer, _count)
+        if len(ids) > 0:
+            claimed = self._preprocess(
+                self.client.xclaim(
+                    name=stream,
+                    groupname=self.group,
+                    consumername=self.name,
+                    min_idle_time=0,
+                    message_ids=ids,
+                )
             )
+            return [[stream, claimed]]  # add stream name to mimic the usual batch
+        return [[stream, []]]
 
-        res = []
-        while True:
-            ids = self.get_pending(stream, consumer, _count)
-            if len(ids) == 0:
-                break
-            res.extend(claim(ids))
-            if count is not None:
-                break
-        return [[stream, res]]  # add stream name to mimic the usual batch
-
-    def steal_pending(self, consumer):
-        """Steal all pending messages in all streams from another consumer in this
+    def steal_pending(self, consumer, min_idle_time):
+        """Steal pending messages in all streams from another consumer in this
         group.
         """
-        info = StreamInfo(self)
+        res = []
         for stream in self.streams:
-            if info.has_pending(stream, consumer):
-                return self.claim_pending(stream, consumer)
-
-    def get_info(self, stream: str):
-        """Get info about state of consumers in this group as related to a stream."""
-        return self._preprocess(self.client.xinfo_consumers(stream, self.group))
-
-
-class StreamInfo:
-    def __init__(self, consumer: GroupConsumer):
-        self.consumer = consumer
-        self.cache = {}
-
-    def __getitem__(self, stream):
-        if stream not in self.cache:
-            self.cache[stream] = self.consumer.get_info(stream)
-        return self.cache[stream]
-
-    def has_pending(self, stream, consumer):
-        s = self[stream]
-        for con in s:
-            if con["name"] == consumer and con["pending"] > 0:
-                return True
-        return False
+            res.extend(self.claim_pending(stream, consumer, min_idle_time))
+        return res

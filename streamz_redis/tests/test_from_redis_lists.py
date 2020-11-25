@@ -9,19 +9,20 @@ Stream.register_api(staticmethod)(from_redis_lists)
 
 def test_from_redis_lists(redis: StrictRedis):
     name = uuid()
-    source = Stream.from_redis_lists(name)
+    source = Stream.from_redis_lists(name, timeout=0.1)
     L = source.pluck(1).map(int).sink_to_list()
     source.start()
 
     redis.rpush(name, *list(range(3)))
 
     wait_for(lambda: L == [0, 1, 2], 3)
+    source.stop()
 
 
-def test_from_redis_lists_multiple(redis: StrictRedis):
+def test_multiple(redis: StrictRedis):
     l1, l2 = uuid(2)
 
-    source = Stream.from_redis_lists([l1, l2])
+    source = Stream.from_redis_lists([l1, l2], timeout=0.1)
     L = source.pluck(1).map(int).sink_to_list()
     source.start()
 
@@ -29,3 +30,4 @@ def test_from_redis_lists_multiple(redis: StrictRedis):
     redis.rpush(l2, *list(range(3)))
 
     wait_for(lambda: len(L) == 6, 2)
+    source.stop()

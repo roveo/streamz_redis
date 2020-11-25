@@ -1,7 +1,8 @@
-import time
+from multiprocessing.queues import Empty
 
 from streamz_redis.sources.base import RedisSource
-from streamz_redis.sources.consumers import GroupConsumer, convert_bytes
+from streamz_redis.sources.consumers import GroupConsumer
+from streamz_redis.sources.heart import Heart
 from tornado import gen
 
 
@@ -20,7 +21,7 @@ class from_redis_consumer_group(RedisSource):
         count: int = None,
         replay_pending: bool = True,
         heartbeat_interval: int = None,
-        claim_timeout: int = 10,
+        claim_timeout: int = None,
         **kwargs,
     ):
         """Parameters
@@ -64,17 +65,23 @@ class from_redis_consumer_group(RedisSource):
         **kwargs:
             Will be passed to ``streamz.Source``.
         """
-        super().__init__(client_params, **kwargs)
+        super().__init__(client_params=client_params, **kwargs)
         self._streams = streams
         self._group = group_name
         self._name = consumer_name
         self._timeout = timeout
         self._count = count
         self._replay = replay_pending
+        self._client_params = client_params
         self._heartbeat_interval = heartbeat_interval
         self._claim_timeout = claim_timeout
-        self._heartbeats = {}
         self._consumer = None
+        self._heart = None
+
+    def stop(self):
+        if self._heart is not None:
+            self._heart.stop()
+        self.stopped = True
 
     @gen.coroutine
     def _run(self):
@@ -88,13 +95,28 @@ class from_redis_consumer_group(RedisSource):
         )
 
         if self._heartbeat_interval is not None:
-            self.loop.add_callback(self._heartbeat)
+            self._heart = Heart(
+                streams=list(self._consumer.streams),
+                group=self._group,
+                name=self._name,
+                client_params=self._client_params,
+                interval=self._heartbeat_interval,
+                timeout=self._claim_timeout,
+            )
+            self._heart.start()
+            self.loop.add_callback(self._loot)
 
         if self._replay:
             yield self._emit_pending()
+
         while not self.stopped:
+            if self._heart is not None and not self._heart.is_alive():
+                break
             res = yield self._run_in_executor(self._consumer.consume)
             yield self._emit_streams_response(res, ack=self._ack)
+
+        if self._heart is not None:
+            self._heart.stop()
 
     def _ack(self, stream, *ids):
         def cb():
@@ -108,25 +130,27 @@ class from_redis_consumer_group(RedisSource):
         yield self._emit_streams_response(res, ack=self._ack)
 
     @gen.coroutine
-    def _heartbeat(self):
-        sub = self._redis.pubsub()
-        sub.subscribe(**{self._group: self._handle_heartbeat})
-        thread = sub.run_in_thread()
+    def _loot(self):
+        dead = set()
         while not self.stopped:
-            self._redis.publish(self._group, self._name)
-            yield self._cleanup()
-            yield gen.sleep(self._heartbeat_interval)
-        thread.stop()
+            dead |= self._get_dead()
+            empty = set()
+            for con, last in dead:
+                res = self._consumer.steal_pending(con, int(last * 1000))
+                messages = sum(len(m) for _, m in res)
+                while messages > 0:
+                    yield self._emit_streams_response(res, ack=self._ack)
+                    res = self._consumer.steal_pending(con, int(last * 1000))
+                    messages = sum(len(m) for _, m in res)
+                empty.add((con, last))
+            dead -= empty
+            yield gen.sleep(self._claim_timeout)
 
-    def _handle_heartbeat(self, message):
-        con = convert_bytes(message)["data"]
-        if con != self._name:
-            self._heartbeats[con] = time.time()
-
-    @gen.coroutine
-    def _cleanup(self):
-        for con, last in self._heartbeats.items():
-            now = time.time()
-            if now - last > self._claim_timeout:
-                res = yield self._run_in_executor(self._consumer.steal_pending, con)
-                yield self._emit_streams_response(res)
+    def _get_dead(self):
+        S = set()
+        while True:
+            try:
+                S.add(self._heart.dead.get(block=False))
+            except Empty:
+                break
+        return S
