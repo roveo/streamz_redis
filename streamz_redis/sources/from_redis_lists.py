@@ -9,6 +9,8 @@ class from_redis_lists(RedisSource):
     used as a volatile queue, FIFO or FILO depending on the combination of how the
     elements are added to the list and ``left`` parameter.
 
+    Items are emitted as tuples of (list-name, item).
+
     Note that if there is a crash, there's no way to retrieve unprocessed items that
     were popped from the list. If you need durability, consider using
     ``from_redis_consumer_group``.

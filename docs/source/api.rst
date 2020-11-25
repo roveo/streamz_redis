@@ -2,7 +2,8 @@ API
 ===
 
 Sources
-^^^^^^^
+-------
+
 .. currentmodule:: streamz_redis.sources
 
 .. autosummary::
@@ -20,4 +21,21 @@ Sources
 
 .. autoclass::
    from_redis_consumer_group
+   :members: __init__
+
+Sinks
+-----
+
+.. currentmodule:: streamz_redis.sinks
+
+.. autosummary::
+   sink_to_redis_list
+   sink_to_redis_stream
+
+.. autoclass::
+   sink_to_redis_list
+   :members: __init__
+
+.. autoclass::
+   sink_to_redis_stream
    :members: __init__
