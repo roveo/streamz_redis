@@ -11,12 +11,14 @@ setup(
     ],
     entry_points={
         "streamz.sources": [
-            "from_redis_list = streamz_redis.sources:from_redis_list",
-            "from_redis_stream = streamz_redis.sources:from_redis_stream",
+            "from_redis_lists = streamz_redis.sources:from_redis_lists",
+            "from_redis_streams = streamz_redis.sources:from_redis_streams",
             "from_redis_comsumer_group = "
             "streamz_redis.sources:from_redis_consumer_group",
         ],
-        "streamz.nodes": [],
-        "streamz.sinks": [],
+        "streamz.sinks": [
+            "sink_to_redis_list = streamz_redis.sinks.sink_to_redis_list",
+            "sink_to_redis_stream = streamz_redis.sinks.sink_to_redis_stream",
+        ],
     },
 )
